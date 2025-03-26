@@ -11,7 +11,6 @@ import torch.nn.functional as F
 import wget
 from PIL import Image
 from scipy.optimize import linear_sum_assignment
-from torch._six import string_classes
 from torch.utils.data import DataLoader
 from torch.utils.data._utils.collate import np_str_obj_array_pattern, default_collate_err_msg_format
 from torchmetrics import Metric
@@ -19,7 +18,11 @@ from torchvision import models
 from torchvision import transforms as T
 from torch.utils.tensorboard.summary import hparams
 
-
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
+    
 def prep_for_plot(img, rescale=True, resize=None):
     if resize is not None:
         img = F.interpolate(img.unsqueeze(0), resize, mode="bilinear")
@@ -121,7 +124,7 @@ def load_model(model_type, data_dir):
         raise ValueError("No model: {} found".format(model_type))
 
     model.eval()
-    model.cuda()
+    model.to(device)
     return model
 
 
@@ -305,7 +308,7 @@ def flexible_collate(batch):
         return torch.tensor(batch, dtype=torch.float64)
     elif isinstance(elem, int):
         return torch.tensor(batch)
-    elif isinstance(elem, string_classes):
+    elif isinstance(elem, str):
         return batch
     elif isinstance(elem, collections.abc.Mapping):
         return {key: flexible_collate([d[key] for d in batch]) for key in elem}

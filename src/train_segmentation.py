@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.utilities.seed import seed_everything
+from lightning_fabric.utilities.seed import seed_everything
 import torch.multiprocessing
 import seaborn as sns
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -17,6 +17,11 @@ import sys
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
+    
 def get_class_labels(dataset_name):
     if dataset_name.startswith("cityscapes"):
         return [
@@ -55,6 +60,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.n_classes = n_classes
+        self.validation_step_outputs = []
 
         if not cfg.continuous:
             dim = n_classes
@@ -63,7 +69,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
 
         data_dir = join(cfg.output_root, "data")
         if cfg.arch == "feature-pyramid":
-            cut_model = load_model(cfg.model_type, data_dir).cuda()
+            cut_model = load_model(cfg.model_type, data_dir).to(device)
             self.net = FeaturePyramidNet(cfg.granularity, cut_model, dim, cfg.continuous)
         elif cfg.arch == "dino":
             self.net = DinoFeaturizer(dim, cfg)
@@ -242,6 +248,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
             self.logger.experiment.close()
             self.logger.experiment._get_file_writer()
 
+        self.training_step_outputs.append(loss)
         return loss
 
     def on_train_start(self):
@@ -268,14 +275,17 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
             cluster_preds = cluster_preds.argmax(1)
             self.cluster_metrics.update(cluster_preds, label)
 
-            return {
+            output = {
                 'img': img[:self.cfg.n_images].detach().cpu(),
                 'linear_preds': linear_preds[:self.cfg.n_images].detach().cpu(),
                 "cluster_preds": cluster_preds[:self.cfg.n_images].detach().cpu(),
                 "label": label[:self.cfg.n_images].detach().cpu()}
+            self.validation_step_outputs.append(output)
 
-    def validation_epoch_end(self, outputs) -> None:
-        super().validation_epoch_end(outputs)
+            return output
+
+    def on_validation_epoch_end(self) -> None:
+        outputs = self.validation_step_outputs
         with torch.no_grad():
             tb_metrics = {
                 **self.linear_metrics.compute(),
@@ -290,7 +300,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
                 fig, ax = plt.subplots(4, self.cfg.n_images, figsize=(self.cfg.n_images * 3, 4 * 3))
                 for i in range(self.cfg.n_images):
                     ax[0, i].imshow(prep_for_plot(output["img"][i]))
-                    ax[1, i].imshow(self.label_cmap[output["label"][i]])
+                    ax[1, i].imshow(self.label_cmap[output["label"][i]].squeeze())
                     ax[2, i].imshow(self.label_cmap[output["linear_preds"][i]])
                     ax[3, i].imshow(self.label_cmap[self.cluster_metrics.map_clusters(output["cluster_preds"][i])])
                 ax[0, 0].set_ylabel("Image", fontsize=16)
@@ -369,6 +379,7 @@ class LitUnsupervisedSegmenter(pl.LightningModule):
 
             self.linear_metrics.reset()
             self.cluster_metrics.reset()
+        self.validation_step_outputs.clear()  # free memory
 
     def configure_optimizers(self):
         main_params = list(self.net.parameters())
@@ -443,8 +454,8 @@ def my_app(cfg: DictConfig) -> None:
         dataset_name=cfg.dataset_name,
         crop_type=None,
         image_set="val",
-        transform=get_transform(320, False, val_loader_crop),
-        target_transform=get_transform(320, True, val_loader_crop),
+        transform=get_transform(cfg.res, False, val_loader_crop),
+        target_transform=get_transform(cfg.res, True, val_loader_crop),
         mask=True,
         cfg=cfg,
     )

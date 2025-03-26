@@ -16,7 +16,10 @@ from data import *
 from modules import *
 from train_segmentation import get_class_labels
 
-
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 @torch.jit.script
 def super_perm(size: int, device: torch.device):
@@ -79,7 +82,7 @@ class LitRecalibrator(pl.LightningModule):
             dim = cfg.dim
 
         data_dir = join(cfg.output_root, "data")
-        self.moco = FeaturePyramidNet(cfg.granularity, load_model("mocov2", data_dir).cuda(), dim, cfg.continuous)
+        self.moco = FeaturePyramidNet(cfg.granularity, load_model("mocov2", data_dir).to(device), dim, cfg.continuous)
         # self.dino = DinoFeaturizer(dim, cfg)
         # self.dino = LitUnsupervisedSegmenter.load_from_checkpoint("../models/vit_base_cocostuff27.ckpt").net
         # self.crf = CRFModule()

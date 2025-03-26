@@ -10,6 +10,10 @@ from tqdm import tqdm
 import random
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 class UnlabeledImageFolder(Dataset):
     def __init__(self, root, transform):
@@ -50,7 +54,7 @@ def my_app(cfg: DictConfig) -> None:
                         shuffle=False, num_workers=cfg.num_workers,
                         pin_memory=True, collate_fn=flexible_collate)
 
-    model.eval().cuda()
+    model.eval().to(device)
     if cfg.use_ddp:
         par_model = torch.nn.DataParallel(model.net)
     else:
@@ -58,7 +62,7 @@ def my_app(cfg: DictConfig) -> None:
 
     for i, (img, name) in enumerate(tqdm(loader)):
         with torch.no_grad():
-            img = img.cuda()
+            img = img.to(device)
             feats, code1 = par_model(img)
             feats, code2 = par_model(img.flip(dims=[3]))
             code = (code1 + code2.flip(dims=[3])) / 2

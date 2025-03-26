@@ -94,10 +94,13 @@ class DirectoryDataset(Dataset):
     def __getitem__(self, index):
         image_fn = self.img_files[index]
         img = Image.open(join(self.img_dir, image_fn))
+        if img.mode in ("L", "LA"):
+            img = img.convert('RGB')
 
         if self.label_files is not None:
             label_fn = self.label_files[index]
             label = Image.open(join(self.label_dir, label_fn))
+            # kept gray for training & evaluation
 
         seed = np.random.randint(2147483647)
         random.seed(seed)
@@ -499,7 +502,7 @@ class ContrastiveSegDataset(Dataset):
         else:
             model_type = cfg.model_type
 
-        nice_dataset_name = cfg.dir_dataset_name if dataset_name == "directory" else dataset_name
+        nice_dataset_name = cfg.dataset_name if dataset_name == "directory" else dataset_name
         feature_cache_file = join(pytorch_data_dir, "nns", "nns_{}_{}_{}_{}_{}.npz".format(
             model_type, nice_dataset_name, image_set, crop_type, cfg.res))
         if pos_labels or pos_images:

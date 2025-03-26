@@ -8,15 +8,19 @@ import torch.multiprocessing
 import torch.multiprocessing
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
-from pytorch_lightning.utilities.seed import seed_everything
+from lightning_fabric.utilities.seed import seed_everything
 from tqdm import tqdm
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 def get_feats(model, loader):
     all_feats = []
     for pack in tqdm(loader):
         img = pack["img"]
-        feats = F.normalize(model.forward(img.cuda()).mean([2, 3]), dim=1)
+        feats = F.normalize(model.forward(img.to(device)).mean([2, 3]), dim=1)
         all_feats.append(feats.to("cpu", non_blocking=True))
     return torch.cat(all_feats, dim=0).contiguous()
 
@@ -52,10 +56,10 @@ def my_app(cfg: DictConfig) -> None:
         no_ap_model = torch.nn.Sequential(
             DinoFeaturizer(20, cfg),  # dim doesent matter
             LambdaLayer(lambda p: p[0]),
-        ).cuda()
+        ).to(device)
     else:
-        cut_model = load_model(cfg.model_type, join(cfg.output_root, "data")).cuda()
-        no_ap_model = nn.Sequential(*list(cut_model.children())[:-1]).cuda()
+        cut_model = load_model(cfg.model_type, join(cfg.output_root, "data")).to(device)
+        no_ap_model = nn.Sequential(*list(cut_model.children())[:-1]).to(device)
     par_model = torch.nn.DataParallel(no_ap_model)
 
     for crop_type in crop_types:

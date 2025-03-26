@@ -4,6 +4,10 @@ from utils import *
 import torch.nn.functional as F
 import dino.vision_transformer as vits
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 
 class LambdaLayer(nn.Module):
     def __init__(self, lambd):
@@ -29,7 +33,7 @@ class DinoFeaturizer(nn.Module):
             num_classes=0)
         for p in self.model.parameters():
             p.requires_grad = False
-        self.model.eval().cuda()
+        self.model.eval().to(device)
         self.dropout = torch.nn.Dropout2d(p=.1)
 
         if arch == "vit_small" and patch_size == 16:
@@ -45,7 +49,8 @@ class DinoFeaturizer(nn.Module):
 
         if cfg.pretrained_weights is not None:
             state_dict = torch.load(cfg.pretrained_weights, map_location="cpu")
-            state_dict = state_dict["teacher"]
+            if "teacher" in state_dict:
+                state_dict = state_dict["teacher"]
             # remove `module.` prefix
             state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
             # remove `backbone.` prefix induced by multicrop wrapper

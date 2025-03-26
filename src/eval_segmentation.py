@@ -13,6 +13,11 @@ from train_segmentation import LitUnsupervisedSegmenter, prep_for_plot, get_clas
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+if torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
+
 def plot_cm(histogram, label_cmap, cfg):
     fig = plt.figure(figsize=(10, 10))
     ax = fig.gca()
@@ -70,8 +75,8 @@ def my_app(cfg: DictConfig) -> None:
         run_picie = cfg.run_picie and model.cfg.dataset_name == "cocostuff27"
         if run_picie:
             picie_state = torch.load("../saved_models/picie_and_probes.pth")
-            picie = picie_state["model"].cuda()
-            picie_cluster_probe = picie_state["cluster_probe"].module.cuda()
+            picie = picie_state["model"].to(device)
+            picie_cluster_probe = picie_state["cluster_probe"].module.to(device)
             picie_cluster_metrics = picie_state["cluster_metrics"]
 
         loader_crop = "center"
@@ -89,7 +94,7 @@ def my_app(cfg: DictConfig) -> None:
                                  shuffle=False, num_workers=cfg.num_workers,
                                  pin_memory=True, collate_fn=flexible_collate)
 
-        model.eval().cuda()
+        model.eval().to(device)
 
         if cfg.use_ddp:
             par_model = torch.nn.DataParallel(model.net)
@@ -118,8 +123,8 @@ def my_app(cfg: DictConfig) -> None:
         with Pool(cfg.num_workers + 5) as pool:
             for i, batch in enumerate(tqdm(test_loader)):
                 with torch.no_grad():
-                    img = batch["img"].cuda()
-                    label = batch["label"].cuda()
+                    img = batch["img"].to(device)
+                    label = batch["label"].to(device)
 
                     feats, code1 = par_model(img)
                     feats, code2 = par_model(img.flip(dims=[3]))
@@ -131,8 +136,8 @@ def my_app(cfg: DictConfig) -> None:
                     cluster_probs = model.cluster_probe(code, 2, log_probs=True)
 
                     if cfg.run_crf:
-                        linear_preds = batched_crf(pool, img, linear_probs).argmax(1).cuda()
-                        cluster_preds = batched_crf(pool, img, cluster_probs).argmax(1).cuda()
+                        linear_preds = batched_crf(pool, img, linear_probs).argmax(1).to(device)
+                        cluster_preds = batched_crf(pool, img, cluster_probs).argmax(1).to(device)
                     else:
                         linear_preds = linear_probs.argmax(1)
                         cluster_preds = cluster_probs.argmax(1)
